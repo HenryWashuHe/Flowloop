@@ -1,51 +1,233 @@
-# Project Handoff
+# FlowLoop Handoff Document
 
-## Current Status
-The project has been successfully refactored to include a Fusion-based Frustration detection model and a comprehensive Frontend Dashboard.
+## Quick Start (3 Terminals Required)
 
-### Core Features Working
-1.  **ML Inference**:
-    *   **Emotion Detection**: Uses HSEmotion ONNX model (`enet_b2_8` - ~70% accuracy).
-    *   **Face Crop Extraction**: Frontend extracts 224x224 face crops from video using landmark bounding box.
-    *   **Frustration Score**: Fuses ML predictions (60%) with Brow-Furrow Heuristics (40%) via Facial Landmarks.
-    *   **Attention Score**: Fuses ML engagement (70%) with Eye Aspect Ratio heuristics (30%).
-    *   **Sensitivity**: Adjusted to be more responsive to negative emotion spikes.
-
-2.  **Frontend Dashboard**:
-    *   **Cognitive State**: Real-time gauges for Attention and Frustration.
-    *   **Emotion Analysis**: Live breakdown of all 7 detected emotions.
-    *   **Task Zone**: Interactive Math tasks with immediate feedback.
-    *   **Session Log**: Tracks usage and task completion.
-
-### Known Issues
-*   **Port Conflicts**: The development server ports often hang if not killed properly. Use the provided kill commands if needed.
-*   **Startup Sequence**: ML server must be started before the Backend to ensure the connection allows for inference.
-
-## Manual Startup Commands
-The system consists of 3 services that must be run in separate terminals in this specific order:
-
-**1. ML Inference Server (Port 8001)**
 ```bash
-cd ml
-source .venv/bin/activate
-python inference_server.py
+# Terminal 1 — ML Inference Server (Python 3.11, HSEmotion model)
+cd ml && source .venv/bin/activate && python inference_server.py
+
+# Terminal 2 — Backend API (Python 3.14, FastAPI)
+cd backend && source .venv/bin/activate && python -m src.main
+
+# Terminal 3 — Frontend (React + Vite)
+cd frontend && pnpm dev
 ```
 
-**2. Backend API (Port 8000)**
+Open http://localhost:5173
+
+**Note**: ML server must be running for real emotion predictions. Without it, backend uses mock data.
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Frontend (React)                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │ WebcamCapture│→ │ FaceMesh     │→ │ FaceCropExtractor    │  │
+│  │              │  │ (MediaPipe)  │  │ (224x224 crop)       │  │
+│  └──────────────┘  └──────────────┘  └──────────┬───────────┘  │
+│                                                  │              │
+│                    WebSocket (landmarks + base64 image)        │
+└──────────────────────────────────┬──────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                        Backend (FastAPI)                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │ WS Handler   │→ │ EmotionSvc   │→ │ Task Engine          │  │
+│  │              │  │ (ONNX)       │  │ (Adaptive Difficulty)│  │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Components
+
+### Frontend (`/frontend`)
+
+| File | Purpose |
+|------|---------|
+| `src/pages/SessionPage.tsx` | Main training interface |
+| `src/components/WebcamCapture/` | Camera capture + MediaPipe |
+| `src/lib/features/faceCropExtractor.ts` | Extract face from video frame |
+| `src/lib/websocket/WebSocketClient.ts` | Backend communication |
+| `src/index.css` | Design system (Tailwind) |
+| `tailwind.config.js` | Color palette + typography |
+
+### Backend (`/backend`)
+
+| File | Purpose |
+|------|---------|
+| `src/main.py` | FastAPI app entry |
+| `src/websocket/handler.py` | Frame processing + inference |
+| `src/inference/emotion_service.py` | ONNX model wrapper |
+| `src/tasks/task_engine.py` | Task generation + difficulty |
+| `src/config.py` | Settings + model paths |
+
+### ML (`/ml`)
+
+| File | Purpose |
+|------|---------|
+| `models/emotion_net.onnx` | Trained emotion model |
+| `models/emotion_net.py` | Model architecture (EfficientNet-B0) |
+| `training/train_emotion.py` | Training script |
+| `export/export_onnx.py` | ONNX conversion |
+
+---
+
+## Data Flow
+
+1. **Frontend** captures video frame via webcam
+2. **MediaPipe** extracts 468 face landmarks
+3. **FaceCropExtractor** creates 224×224 padded face crop
+4. **WebSocket** sends landmarks + base64 image to backend
+5. **EmotionService** runs ONNX inference → emotions, frustration, engagement
+6. **EMA Smoothing** stabilizes predictions over time
+7. **Task Engine** adjusts difficulty based on cognitive state
+8. **WebSocket** sends predictions + tasks back to frontend
+
+---
+
+## Design System
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `canvas` | #f6ffff | Page background |
+| `ink` | #1d2223 | Primary text |
+| `accent` | #e43e33 | Alerts, critical states |
+| `neutral-*` | gray scale | Secondary text, borders |
+| `state-good` | #059669 | Positive feedback |
+
+**Typography**: Inter (400, 500, 600 weights)
+
+**Principles**:
+- Calm, academic, research-tool aesthetic
+- Generous whitespace, no clutter
+- No animations unless meaningful
+- Flat cards, subtle borders
+
+---
+
+## Environment Setup
+
+### Backend
 ```bash
 cd backend
+python -m venv .venv
 source .venv/bin/activate
-python -m src.main
+pip install -e ".[dev]"
 ```
 
-**3. Frontend (Port 5173)**
+### Frontend
 ```bash
 cd frontend
-pnpm dev
+pnpm install
 ```
 
+### ML (for training only)
+```bash
+cd ml
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+## Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| Port already in use | `lsof -ti:8000 \| xargs kill -9` |
+| Model not found | Check `backend/src/config.py` → `models_dir` points to `ml/models` |
+| WebSocket disconnects | Backend may have crashed — check terminal |
+| Face not detected | Ensure good lighting, face centered |
+| Emotions not updating | Verify face crop is being sent (check Network tab) |
+| Predictions seem random | Check backend logs for `[INFERENCE PATH]` — if MOCK, model isn't loaded |
+| Neutral always dominant | Expected with FER2013 dataset bias; engagement formula compensates |
+
+---
+
+## Inference Path Debugging
+
+The backend logs which inference path is being used:
+
+```
+[INFERENCE] Using HSEmotion model - dominant: neutral  # Good - real model
+[INFERENCE] MOCK predictions - start ML server...      # Bad - ML server not running
+```
+
+**To verify real model is loaded:**
+1. Ensure ML server is running on port 8001: `curl http://localhost:8001/health`
+2. Look for `[INFERENCE] Using HSEmotion model` in backend logs
+3. Check ML server terminal for `POST /predict` requests
+
+---
+
+## Engagement & Frustration Formulas
+
+### Engagement (Russell's Circumplex Model)
+```python
+arousal = surprise*1.0 + fear*0.9 + angry*0.85 + happy*0.7 + neutral*0.5 + ...
+valence_boost = happy*0.3 + surprise*0.1
+valence_penalty = sad*0.3 + disgust*0.15
+engagement = arousal + valence_boost - valence_penalty
+```
+
+### Frustration
+```python
+frustration = angry*1.0 + disgust*0.7 + fear*0.5 + sad*0.4
+```
+
+### Emotion Mapping (HSEmotion 8 → 7 classes)
+- Contempt → neutral (was causing inflated disgust)
+
+---
+
 ## Next Steps
-*   **Refine Task Engine**: Add non-math tasks or adaptive difficulty logic beyond the placeholder.
-*   **Session Persistence**: Save session logs to a database.
-*   **User Settings**: Implement the settings page to configure camera selection and difficulty presets.
-*   **Emotion Calibration**: Add per-user calibration to improve accuracy for individual differences.
+
+### High Priority
+- [ ] Implement session persistence (SQLite)
+- [ ] Add chart visualizations to Dashboard (Recharts)
+- [ ] Refine adaptive difficulty algorithm based on engagement/frustration
+
+### Medium Priority
+- [ ] Multiple task types (memory games, pattern recognition)
+- [ ] User calibration for emotion baseline
+- [ ] Export session data (CSV/JSON)
+- [ ] Train custom EmotionNet on more diverse dataset
+
+### Low Priority
+- [ ] Dark mode toggle
+- [ ] Mobile responsive layout
+- [ ] Keyboard shortcuts
+- [ ] WebSocket reconnection logic
+
+---
+
+## Session Notes (Feb 4, 2026)
+
+**What was done:**
+- Integrated HSEmotion pretrained model via separate ML server
+- Fixed emotion mapping (Contempt→neutral instead of disgust)
+- Improved engagement formula using arousal/valence model
+- Added emotion distribution UI with colored bars
+- Enhanced UI with gradients, glass morphism, micro-interactions
+
+**What's working well:**
+- Real-time emotion detection at ~15 FPS
+- HSEmotion model provides reasonable accuracy (~70%)
+- Dual-server architecture handles Python version constraints
+
+**Known quirks:**
+- Neutral tends to dominate (expected with most facial expressions)
+- ML server must be started separately (port 8001)
+
+---
+
+## Repository
+
+https://github.com/HenryWashuHe/Flowloop
