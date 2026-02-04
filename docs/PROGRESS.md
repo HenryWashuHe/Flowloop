@@ -111,6 +111,15 @@ FlowLoop is an adaptive cognitive training platform that uses real-time emotion 
 - [x] `/signup` - New user registration
 - [x] Protected dashboard with auth check
 
+### Session UX Improvements
+- [x] Real-time cognitive sparkline chart (engagement + frustration)
+- [x] Session timer showing elapsed time (MM:SS)
+- [x] Activity log with timestamped entries
+- [x] Session summary modal on session end
+- [x] Streak tracking with fire emoji (🔥)
+- [x] Best streak displayed in summary
+- [x] Keyboard shortcuts (Escape to end/close)
+
 ---
 
 ## Planned Features
