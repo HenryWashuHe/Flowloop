@@ -1,11 +1,35 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  AreaChart,
+  Area,
+  ResponsiveContainer,
+  YAxis,
+} from 'recharts'
 import WebcamCapture from '../components/WebcamCapture'
 import { FaceMeshResult } from '../lib/mediapipe/FaceMeshProcessor'
 import { WebSocketClient, ConnectionState, PredictionData, TaskData, TaskResultData } from '../lib/websocket/WebSocketClient'
 import { FaceCropExtractor } from '../lib/features/faceCropExtractor'
 import { useSessionPersistence } from '../lib/supabase'
 import type { CognitiveState, EmotionScores } from '../types'
+
+// =============================================================================
+// Types
+// =============================================================================
+
+interface CognitiveHistoryPoint {
+  engagement: number
+  frustration: number
+  timestamp: number
+}
+
+interface ActivityLogEntry {
+  id: string
+  type: 'task' | 'difficulty' | 'session'
+  message: string
+  timestamp: number
+  status?: 'success' | 'error' | 'info'
+}
 
 // =============================================================================
 // Default State
@@ -55,6 +79,12 @@ export default function SessionPage() {
   const [currentAnswer, setCurrentAnswer] = useState('')
   const [tasksCompleted, setTasksCompleted] = useState(0)
   const [correctAnswers, setCorrectAnswers] = useState(0)
+
+  // Real-time tracking
+  const [cognitiveHistory, setCognitiveHistory] = useState<CognitiveHistoryPoint[]>([])
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([])
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null)
+  const [elapsedTime, setElapsedTime] = useState(0)
 
   // Refs
   const wsClientRef = useRef<WebSocketClient | null>(null)
@@ -127,6 +157,27 @@ export default function SessionPage() {
   }, [])
 
   // ===========================================================================
+  // Activity Log Helpers
+  // ===========================================================================
+
+  const addLogEntry = useCallback((
+    type: ActivityLogEntry['type'],
+    message: string,
+    status: ActivityLogEntry['status'] = 'info'
+  ) => {
+    setActivityLog((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type,
+        message,
+        timestamp: Date.now(),
+        status,
+      },
+      ...prev,
+    ].slice(0, 20)) // Keep last 20 entries
+  }, [])
+
+  // ===========================================================================
   // Session Control
   // ===========================================================================
 
@@ -142,11 +193,18 @@ export default function SessionPage() {
       await startPersistentSession('math', isAdaptiveEnabled)
     }
 
+    const now = Date.now()
     setIsSessionActive(true)
     setTasksCompleted(0)
     setCorrectAnswers(0)
+    setSessionStartTime(now)
+    setElapsedTime(0)
+    setCognitiveHistory([])
+    setActivityLog([])
     emotionSampleCountRef.current = 0
-  }, [isAdaptiveEnabled, isAuthenticated, startPersistentSession])
+
+    addLogEntry('session', 'Session started', 'info')
+  }, [isAdaptiveEnabled, isAuthenticated, startPersistentSession, addLogEntry])
 
   const endSession = useCallback(async () => {
     // End WebSocket session
@@ -164,7 +222,49 @@ export default function SessionPage() {
     setSessionId(null)
     setCognitiveState(DEFAULT_COGNITIVE_STATE)
     setEmotions(DEFAULT_EMOTIONS)
+    setSessionStartTime(null)
   }, [isAuthenticated, endPersistentSession])
+
+  // ===========================================================================
+  // Session Timer
+  // ===========================================================================
+
+  useEffect(() => {
+    if (!isSessionActive || !sessionStartTime) return
+
+    const interval = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - sessionStartTime) / 1000))
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isSessionActive, sessionStartTime])
+
+  // Format elapsed time as MM:SS
+  const formattedTime = useMemo(() => {
+    const mins = Math.floor(elapsedTime / 60)
+    const secs = elapsedTime % 60
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }, [elapsedTime])
+
+  // ===========================================================================
+  // Cognitive History Tracking
+  // ===========================================================================
+
+  useEffect(() => {
+    if (!isSessionActive) return
+    if (cognitiveState.timestamp === DEFAULT_COGNITIVE_STATE.timestamp) return
+
+    setCognitiveHistory((prev) => {
+      const newPoint: CognitiveHistoryPoint = {
+        engagement: cognitiveState.attention,
+        frustration: cognitiveState.frustration,
+        timestamp: cognitiveState.timestamp,
+      }
+      // Keep last 60 data points (~4 seconds at 15fps)
+      const updated = [...prev, newPoint]
+      return updated.slice(-60)
+    })
+  }, [cognitiveState, isSessionActive])
 
   // ===========================================================================
   // Persistence Effects
@@ -194,36 +294,57 @@ export default function SessionPage() {
   // Record task results when completed
   const prevLastResultRef = useRef<TaskResultData | null>(null)
   useEffect(() => {
-    if (!isSessionActive || !isAuthenticated || !lastResult) return
+    if (!isSessionActive || !lastResult) return
     if (prevLastResultRef.current?.taskId === lastResult.taskId) return
 
     prevLastResultRef.current = lastResult
 
-    recordTaskResult(
-      currentTask?.taskType || 'math',
-      currentTask?.difficulty || currentDifficulty,
-      lastResult.correct,
-      lastResult.timeTaken * 1000, // Convert to ms
-      cognitiveState.attention,
-      cognitiveState.frustration,
-      currentTask?.question || '',
-      lastResult.userAnswer,
-      lastResult.correctAnswer
+    // Add to activity log
+    addLogEntry(
+      'task',
+      lastResult.correct ? 'Correct answer' : `Incorrect (was ${lastResult.correctAnswer})`,
+      lastResult.correct ? 'success' : 'error'
     )
-  }, [lastResult, isSessionActive, isAuthenticated, currentTask, currentDifficulty, cognitiveState, recordTaskResult])
+
+    // Record to Supabase if authenticated
+    if (isAuthenticated) {
+      recordTaskResult(
+        currentTask?.taskType || 'math',
+        currentTask?.difficulty || currentDifficulty,
+        lastResult.correct,
+        lastResult.timeTaken * 1000, // Convert to ms
+        cognitiveState.attention,
+        cognitiveState.frustration,
+        currentTask?.question || '',
+        lastResult.userAnswer,
+        lastResult.correctAnswer
+      )
+    }
+  }, [lastResult, isSessionActive, isAuthenticated, currentTask, currentDifficulty, cognitiveState, recordTaskResult, addLogEntry])
 
   // Record difficulty changes
   const prevDifficultyRef = useRef(currentDifficulty)
   useEffect(() => {
-    if (!isSessionActive || !isAuthenticated) return
+    if (!isSessionActive) return
     if (prevDifficultyRef.current === currentDifficulty) return
 
     const prevDiff = prevDifficultyRef.current
     prevDifficultyRef.current = currentDifficulty
 
-    const reason = currentDifficulty > prevDiff ? 'increased' : 'decreased'
-    recordDifficultyChange(currentDifficulty, reason)
-  }, [currentDifficulty, isSessionActive, isAuthenticated, recordDifficultyChange])
+    const direction = currentDifficulty > prevDiff ? 'increased' : 'decreased'
+
+    // Add to activity log
+    addLogEntry(
+      'difficulty',
+      `Difficulty ${direction} to ${currentDifficulty}`,
+      'info'
+    )
+
+    // Record to Supabase if authenticated
+    if (isAuthenticated) {
+      recordDifficultyChange(currentDifficulty, direction)
+    }
+  }, [currentDifficulty, isSessionActive, isAuthenticated, recordDifficultyChange, addLogEntry])
 
   // ===========================================================================
   // Frame Processing
@@ -472,7 +593,12 @@ export default function SessionPage() {
         <div className="lg:col-span-3 space-y-6">
           {/* Session Stats */}
           <div className="card">
-            <h2 className="label mb-4">Performance</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="label">Performance</h2>
+              {isSessionActive && (
+                <span className="font-mono text-lg text-neutral-600">{formattedTime}</span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <div className="metric">{accuracy}%</div>
@@ -490,25 +616,83 @@ export default function SessionPage() {
             </div>
           </div>
 
-          {/* Session Log */}
+          {/* Real-time Cognitive Chart */}
+          {isSessionActive && cognitiveHistory.length > 5 && (
+            <div className="card">
+              <h2 className="label mb-3">Cognitive Trends</h2>
+              <div className="h-24">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={cognitiveHistory}>
+                    <defs>
+                      <linearGradient id="engGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#059669" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#059669" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="frustGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#e43e33" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="#e43e33" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <YAxis domain={[0, 1]} hide />
+                    <Area
+                      type="monotone"
+                      dataKey="engagement"
+                      stroke="#059669"
+                      fill="url(#engGradient)"
+                      strokeWidth={1.5}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="frustration"
+                      stroke="#e43e33"
+                      fill="url(#frustGradient)"
+                      strokeWidth={1.5}
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex justify-center gap-4 mt-2 text-xs">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-600" />
+                  Engagement
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-accent" />
+                  Frustration
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Activity Log */}
           <div className="card flex-1">
             <h2 className="label mb-4">Activity Log</h2>
-            <div className="space-y-3 text-sm">
-              {isSessionActive && tasksCompleted === 0 && (
-                <p className="text-neutral-400 italic">Awaiting first response...</p>
+            <div className="space-y-2 text-sm max-h-48 overflow-y-auto">
+              {activityLog.length === 0 && isSessionActive && (
+                <p className="text-neutral-400 italic">Awaiting activity...</p>
               )}
-              {lastResult && (
-                <div className="flex justify-between">
-                  <span className="text-neutral-600">Task {tasksCompleted}</span>
-                  <span className={lastResult.correct ? 'text-state-good' : 'text-accent'}>
-                    {lastResult.correct ? 'Correct' : 'Incorrect'}
+              {activityLog.map((entry) => (
+                <div key={entry.id} className="flex justify-between items-center py-1">
+                  <span className="text-neutral-600 truncate pr-2">{entry.message}</span>
+                  <span className={`text-xs shrink-0 ${
+                    entry.status === 'success' ? 'text-state-good' :
+                    entry.status === 'error' ? 'text-accent' :
+                    'text-neutral-400'
+                  }`}>
+                    {new Date(entry.timestamp).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })}
                   </span>
                 </div>
-              )}
-              {isSessionActive && (
-                <div className="text-neutral-500">
-                  Session started at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
+              ))}
+              {!isSessionActive && activityLog.length === 0 && (
+                <p className="text-neutral-400 italic">No activity yet</p>
               )}
             </div>
           </div>
