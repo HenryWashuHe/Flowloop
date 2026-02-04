@@ -51,9 +51,13 @@ Open http://localhost:5173
 | File | Purpose |
 |------|---------|
 | `src/pages/SessionPage.tsx` | Main training interface |
+| `src/pages/DashboardPage.tsx` | Performance charts + history |
+| `src/pages/LoginPage.tsx` | User authentication |
+| `src/pages/SignupPage.tsx` | User registration |
 | `src/components/WebcamCapture/` | Camera capture + MediaPipe |
 | `src/lib/features/faceCropExtractor.ts` | Extract face from video frame |
 | `src/lib/websocket/WebSocketClient.ts` | Backend communication |
+| `src/lib/supabase/` | Supabase client, auth, sessions |
 | `src/index.css` | Design system (Tailwind) |
 | `tailwind.config.js` | Color palette + typography |
 
@@ -187,12 +191,41 @@ frustration = angry*1.0 + disgust*0.7 + fear*0.5 + sad*0.4
 
 ---
 
+## Supabase Setup
+
+### 1. Configure Environment
+Add your Supabase anon key to `frontend/.env`:
+```bash
+VITE_SUPABASE_URL=https://jafbsrgbawbibumuzojk.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key_here  # Get from Supabase dashboard
+```
+
+### 2. Run Database Migration
+Go to Supabase Dashboard → SQL Editor and run:
+```
+supabase/migrations/001_initial_schema.sql
+```
+
+This creates:
+- `profiles` - User profile data (linked to auth.users)
+- `sessions` - Training session metadata and aggregates
+- `session_events` - Time-series events (emotions, tasks, difficulty changes)
+- `task_results` - Individual task attempts with performance data
+
+### 3. Enable Auth
+In Supabase Dashboard → Authentication:
+- Enable Email provider
+- (Optional) Configure email templates
+
+---
+
 ## Next Steps
 
 ### High Priority
-- [ ] Implement session persistence (SQLite)
-- [ ] Add chart visualizations to Dashboard (Recharts)
+- [x] ~~Implement session persistence~~ (Done - Supabase)
+- [x] ~~Add chart visualizations to Dashboard~~ (Done - Recharts)
 - [ ] Refine adaptive difficulty algorithm based on engagement/frustration
+- [ ] Integrate session persistence into SessionPage
 
 ### Medium Priority
 - [ ] Multiple task types (memory games, pattern recognition)

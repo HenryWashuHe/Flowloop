@@ -4,6 +4,7 @@ import WebcamCapture from '../components/WebcamCapture'
 import { FaceMeshResult } from '../lib/mediapipe/FaceMeshProcessor'
 import { WebSocketClient, ConnectionState, PredictionData, TaskData, TaskResultData } from '../lib/websocket/WebSocketClient'
 import { FaceCropExtractor } from '../lib/features/faceCropExtractor'
+import { useSessionPersistence } from '../lib/supabase'
 import type { CognitiveState, EmotionScores } from '../types'
 
 // =============================================================================
@@ -58,6 +59,17 @@ export default function SessionPage() {
   // Refs
   const wsClientRef = useRef<WebSocketClient | null>(null)
   const faceCropExtractorRef = useRef<FaceCropExtractor | null>(null)
+  const emotionSampleCountRef = useRef(0)
+
+  // Supabase session persistence
+  const {
+    isAuthenticated,
+    startPersistentSession,
+    endPersistentSession,
+    recordEmotionEvent,
+    recordTaskResult,
+    recordDifficultyChange,
+  } = useSessionPersistence()
 
   // ===========================================================================
   // WebSocket Setup
@@ -93,8 +105,6 @@ export default function SessionPage() {
         setCurrentTask(data)
         setTaskStartTime(Date.now())
         setCurrentAnswer('')
-        // Clear previous result after a delay or immediately? 
-        // Keep it visible for a moment if needed, but for now replace immediately
       },
       onTaskResult: (data: TaskResultData) => {
         setLastResult(data)
@@ -120,26 +130,100 @@ export default function SessionPage() {
   // Session Control
   // ===========================================================================
 
-  const startSession = useCallback(() => {
+  const startSession = useCallback(async () => {
+    // Start WebSocket session
     if (wsClientRef.current) {
       wsClientRef.current.connect()
       wsClientRef.current.startSession('math', isAdaptiveEnabled)
     }
+
+    // Start persistent session if authenticated
+    if (isAuthenticated) {
+      await startPersistentSession('math', isAdaptiveEnabled)
+    }
+
     setIsSessionActive(true)
     setTasksCompleted(0)
     setCorrectAnswers(0)
-  }, [isAdaptiveEnabled])
+    emotionSampleCountRef.current = 0
+  }, [isAdaptiveEnabled, isAuthenticated, startPersistentSession])
 
-  const endSession = useCallback(() => {
+  const endSession = useCallback(async () => {
+    // End WebSocket session
     if (wsClientRef.current) {
       wsClientRef.current.endSession()
       wsClientRef.current.disconnect()
     }
+
+    // End persistent session if authenticated
+    if (isAuthenticated) {
+      await endPersistentSession()
+    }
+
     setIsSessionActive(false)
     setSessionId(null)
     setCognitiveState(DEFAULT_COGNITIVE_STATE)
     setEmotions(DEFAULT_EMOTIONS)
-  }, [])
+  }, [isAuthenticated, endPersistentSession])
+
+  // ===========================================================================
+  // Persistence Effects
+  // ===========================================================================
+
+  // Record emotion events (sampled every 10 predictions to avoid data overload)
+  const prevEmotionsRef = useRef<EmotionScores | null>(null)
+  useEffect(() => {
+    if (!isSessionActive || !isAuthenticated) return
+    if (cognitiveState.timestamp === DEFAULT_COGNITIVE_STATE.timestamp) return
+
+    // Sample every 10th prediction
+    emotionSampleCountRef.current++
+    if (emotionSampleCountRef.current % 10 !== 0) return
+
+    // Only record if emotions have changed
+    if (prevEmotionsRef.current === emotions) return
+    prevEmotionsRef.current = emotions
+
+    recordEmotionEvent(
+      cognitiveState.attention,
+      cognitiveState.frustration,
+      emotions as Record<string, number>
+    )
+  }, [cognitiveState, emotions, isSessionActive, isAuthenticated, recordEmotionEvent])
+
+  // Record task results when completed
+  const prevLastResultRef = useRef<TaskResultData | null>(null)
+  useEffect(() => {
+    if (!isSessionActive || !isAuthenticated || !lastResult) return
+    if (prevLastResultRef.current?.taskId === lastResult.taskId) return
+
+    prevLastResultRef.current = lastResult
+
+    recordTaskResult(
+      currentTask?.taskType || 'math',
+      currentTask?.difficulty || currentDifficulty,
+      lastResult.correct,
+      lastResult.timeTaken * 1000, // Convert to ms
+      cognitiveState.attention,
+      cognitiveState.frustration,
+      currentTask?.question || '',
+      lastResult.userAnswer,
+      lastResult.correctAnswer
+    )
+  }, [lastResult, isSessionActive, isAuthenticated, currentTask, currentDifficulty, cognitiveState, recordTaskResult])
+
+  // Record difficulty changes
+  const prevDifficultyRef = useRef(currentDifficulty)
+  useEffect(() => {
+    if (!isSessionActive || !isAuthenticated) return
+    if (prevDifficultyRef.current === currentDifficulty) return
+
+    const prevDiff = prevDifficultyRef.current
+    prevDifficultyRef.current = currentDifficulty
+
+    const reason = currentDifficulty > prevDiff ? 'increased' : 'decreased'
+    recordDifficultyChange(currentDifficulty, reason)
+  }, [currentDifficulty, isSessionActive, isAuthenticated, recordDifficultyChange])
 
   // ===========================================================================
   // Frame Processing
@@ -194,6 +278,15 @@ export default function SessionPage() {
           <span className="text-sm text-neutral-500">
             {isSessionActive ? 'Session in progress' : 'Ready'}
           </span>
+          {isSessionActive && (
+            <span className={`text-xs px-2 py-0.5 rounded-full ${
+              isAuthenticated
+                ? 'bg-green-100 text-green-700'
+                : 'bg-neutral-100 text-neutral-500'
+            }`}>
+              {isAuthenticated ? 'Saving' : 'Demo mode'}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-6">
@@ -364,6 +457,12 @@ export default function SessionPage() {
                 >
                   Begin Session
                 </button>
+                {!isAuthenticated && (
+                  <p className="text-sm text-neutral-400 mt-4">
+                    <Link to="/login" className="text-ink hover:underline">Sign in</Link>
+                    {' '}to save your progress
+                  </p>
+                )}
               </div>
             )}
           </div>

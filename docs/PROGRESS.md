@@ -84,17 +84,40 @@ FlowLoop is an adaptive cognitive training platform that uses real-time emotion 
 
 ## In Progress
 - [ ] Adaptive difficulty logic refinement
-- [ ] Session persistence to database
+- [x] Session persistence to database (Supabase)
+
+---
+
+## Recently Completed (Feb 4, 2026 - Session 2)
+
+### Supabase Integration
+- [x] Supabase client setup with TypeScript types
+- [x] Database schema designed (profiles, sessions, session_events, task_results)
+- [x] Row Level Security (RLS) policies for data isolation
+- [x] Auth context with sign up/in/out functionality
+- [x] Session persistence hook (`useSessionPersistence`)
+- [x] Login and Signup pages
+
+### Dashboard with Charts
+- [x] Recharts integration for visualizations
+- [x] Engagement over time (area chart)
+- [x] Accuracy & Frustration trends (line chart)
+- [x] Tasks per session (bar chart)
+- [x] Overall metrics progress bars
+- [x] Session history table with delete functionality
+
+### New Pages
+- [x] `/login` - Email/password authentication
+- [x] `/signup` - New user registration
+- [x] Protected dashboard with auth check
 
 ---
 
 ## Planned Features
-- [ ] Chart visualizations (Recharts or similar)
 - [ ] Session history with replay
 - [ ] Multiple task types (memory, pattern recognition)
 - [ ] User calibration for emotion baseline
 - [ ] Export session data (CSV/JSON)
-- [ ] Performance analytics over time
 
 ---
 
