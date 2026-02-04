@@ -126,26 +126,46 @@ class HSEmotionService:
         """
         Derive frustration score from emotion probabilities.
         
-        Frustration = high negative emotions + low positive emotions
+        Frustration = high negative emotions (angry, disgust, fear, sad)
+        Neutral and happy indicate LOW frustration.
         """
-        negative = scores.get('angry', 0) + scores.get('disgust', 0) + scores.get('fear', 0) + scores.get('sad', 0)
-        positive = scores.get('happy', 0) + scores.get('neutral', 0) * 0.5
+        negative = (
+            scores.get('angry', 0) * 1.0 +
+            scores.get('disgust', 0) * 0.8 +
+            scores.get('fear', 0) * 0.6 +
+            scores.get('sad', 0) * 0.5
+        )
+        # Neutral is calm, not frustrated
+        calm = scores.get('neutral', 0) * 0.3 + scores.get('happy', 0) * 0.4
         
-        frustration = 0.6 * negative + 0.4 * (1 - positive)
+        frustration = negative - calm * 0.5
         return float(np.clip(frustration, 0, 1))
     
     def _compute_engagement(self, scores: dict[str, float]) -> float:
         """
         Derive engagement score from emotion probabilities.
         
-        Engaged = alert, responsive (surprise, happy, some fear = attention)
-        Disengaged = neutral, sad
-        """
-        engaged = scores.get('happy', 0) * 0.9 + scores.get('surprise', 0) * 0.8 + scores.get('fear', 0) * 0.5
-        disengaged = scores.get('neutral', 0) * 0.3 + scores.get('sad', 0) * 0.6
+        Key insight: NEUTRAL can indicate calm focus, which is HIGH engagement.
+        We only treat neutral as disengaged when combined with low arousal emotions.
         
-        engagement = 0.5 + 0.5 * (engaged - disengaged)
-        return float(np.clip(engagement, 0, 1))
+        Engaged = happy, surprise, neutral (calm focus), even some fear (alertness)
+        Disengaged = sad (withdrawn), very high neutral with no other signals
+        """
+        # Positive engagement signals
+        engaged = (
+            scores.get('happy', 0) * 0.9 +
+            scores.get('surprise', 0) * 0.8 +
+            scores.get('neutral', 0) * 0.7 +  # Neutral = calm focus = ENGAGED
+            scores.get('fear', 0) * 0.3  # Mild alertness
+        )
+        # Disengagement signals
+        disengaged = (
+            scores.get('sad', 0) * 0.8 +  # Sad = withdrawn
+            scores.get('disgust', 0) * 0.3  # Disgust can mean disinterest
+        )
+        
+        engagement = 0.4 + 0.6 * (engaged - disengaged)
+        return float(np.clip(engagement, 0.1, 1.0))
 
 
 # Factory function

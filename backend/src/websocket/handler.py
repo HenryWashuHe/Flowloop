@@ -208,13 +208,20 @@ def run_emotion_inference(image_base64: str) -> tuple[float, float, dict[str, fl
         return None, None, None
     
     try:
-        # Decode base64 image
+        # Decode base64 image (JPEG from frontend)
         image_bytes = base64.b64decode(image_base64)
         image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-        face_array = np.array(image)
+        face_array = np.array(image)  # RGB format, matches training
         
         # Run inference with your trained model
         result = emotion_service.predict(face_array)
+        
+        # Log inference path periodically for debugging
+        if result.get("mock"):
+            # Only log occasionally to avoid spam
+            import random
+            if random.random() < 0.01:  # 1% of frames
+                logger.warning("[INFERENCE PATH] Using MOCK predictions - model not loaded!")
         
         return (
             result["engagement"],

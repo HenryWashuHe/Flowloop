@@ -88,11 +88,12 @@ class EmotionInferenceService:
         model_path = self.settings.emotion_model_full_path
 
         if not model_path.exists():
-            logger.warning(f"Model not found at {model_path}, using mock inference")
+            logger.warning(f"[INFERENCE PATH] Model not found at {model_path}")
+            logger.warning(f"[INFERENCE PATH] Falling back to MOCK inference - predictions will be synthetic!")
             self._use_mock = True
             return
 
-        logger.info(f"Loading emotion model from {model_path}")
+        logger.info(f"[INFERENCE PATH] Loading REAL emotion model from {model_path}")
 
         # Configure providers
         providers = ["CPUExecutionProvider"]
@@ -106,9 +107,11 @@ class EmotionInferenceService:
             )
             self.input_name = self.session.get_inputs()[0].name
             self.output_names = [o.name for o in self.session.get_outputs()]
-            logger.info(f"Model loaded successfully. Outputs: {self.output_names}")
+            logger.info(f"[INFERENCE PATH] ONNX model loaded successfully!")
+            logger.info(f"[INFERENCE PATH] Using REAL inference with outputs: {self.output_names}")
         except Exception as e:
-            logger.error(f"Failed to load model: {e}, falling back to mock")
+            logger.error(f"[INFERENCE PATH] Failed to load ONNX model: {e}")
+            logger.warning(f"[INFERENCE PATH] Falling back to MOCK inference - predictions will be synthetic!")
             self._use_mock = True
 
     def preprocess(self, face_image: np.ndarray) -> np.ndarray:
@@ -116,7 +119,8 @@ class EmotionInferenceService:
         Preprocess face image for inference.
 
         Args:
-            face_image: BGR image from OpenCV (H, W, 3) or RGB
+            face_image: RGB image from frontend (H, W, 3) - already in RGB format
+                       from canvas.toDataURL() -> PIL.Image.convert('RGB')
 
         Returns:
             Preprocessed tensor (1, 3, 224, 224)
@@ -125,14 +129,12 @@ class EmotionInferenceService:
             # Return dummy tensor if cv2 not available
             return np.zeros((1, 3, 224, 224), dtype=np.float32)
 
-        # Resize to 224x224
+        # Resize to 224x224 if needed
         if face_image.shape[:2] != (224, 224):
             face_image = cv2.resize(face_image, (224, 224), interpolation=cv2.INTER_LINEAR)
 
-        # Convert BGR to RGB if needed
-        if len(face_image.shape) == 3 and face_image.shape[2] == 3:
-            # Assume BGR from OpenCV
-            face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+        # NOTE: Image is already RGB from frontend (canvas -> JPEG -> PIL RGB)
+        # Do NOT convert BGR->RGB here - that was causing color channel issues
 
         # Normalize to [0, 1]
         image = face_image.astype(np.float32) / 255.0
@@ -140,7 +142,7 @@ class EmotionInferenceService:
         # Apply ImageNet normalization
         image = (image - IMAGENET_MEAN) / IMAGENET_STD
 
-        # Convert to NCHW format
+        # Convert to NCHW format (channels first for PyTorch/ONNX)
         image = np.transpose(image, (2, 0, 1))
 
         # Add batch dimension
@@ -207,6 +209,7 @@ class EmotionInferenceService:
             "engagement": engagement,
             "features": features,
             "inference_time_ms": inference_time,
+            "inference_path": "onnx",
         }
 
     def predict_batch(self, face_images: list[np.ndarray]) -> list[dict[str, Any]]:
@@ -232,23 +235,35 @@ class EmotionInferenceService:
 
     def _mock_prediction(self) -> dict[str, Any]:
         """Return realistic mock prediction for development."""
-        # Generate slightly varied mock data for realism
-        base_probs = np.array([0.05, 0.02, 0.03, 0.15, 0.05, 0.10, 0.60])
-        noise = np.random.normal(0, 0.02, 7)
-        probs = np.clip(base_probs + noise, 0, 1)
+        # Generate balanced mock data - avoid neutral dominance
+        # Order: angry, disgust, fear, happy, sad, surprise, neutral
+        # More balanced distribution that varies over time
+        base_probs = np.array([0.08, 0.05, 0.07, 0.20, 0.10, 0.15, 0.35])
+        noise = np.random.normal(0, 0.08, 7)  # More variation
+        probs = np.clip(base_probs + noise, 0.02, 1)  # Min 2% per emotion
         probs = probs / probs.sum()
 
         emotions = {label: float(prob) for label, prob in zip(EMOTION_LABELS, probs)}
         dominant_idx = int(np.argmax(probs))
 
+        # Derive engagement from emotions (calm focus = high engagement)
+        # Happy, surprise, and even neutral with open eyes = engaged
+        engaged_weight = probs[3] * 0.9 + probs[5] * 0.8 + probs[6] * 0.6  # happy, surprise, neutral
+        disengaged_weight = probs[4] * 0.7 + probs[2] * 0.4  # sad, fear
+        engagement = float(np.clip(0.5 + 0.5 * (engaged_weight - disengaged_weight) + np.random.normal(0, 0.05), 0.2, 0.95))
+        
+        # Derive frustration from negative emotions
+        frustration = float(np.clip(probs[0] * 0.8 + probs[1] * 0.6 + probs[4] * 0.4 + np.random.normal(0, 0.05), 0.05, 0.8))
+
         return {
             "emotions": emotions,
             "dominant_emotion": EMOTION_LABELS[dominant_idx],
-            "frustration": float(np.clip(0.2 + np.random.normal(0, 0.1), 0, 1)),
-            "engagement": float(np.clip(0.7 + np.random.normal(0, 0.1), 0, 1)),
+            "frustration": frustration,
+            "engagement": engagement,
             "features": np.random.randn(1280).astype(np.float32),
             "inference_time_ms": 0.5,
             "mock": True,
+            "inference_path": "mock",
         }
 
     @property
