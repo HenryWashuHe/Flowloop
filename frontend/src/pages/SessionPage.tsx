@@ -31,6 +31,16 @@ interface ActivityLogEntry {
   status?: 'success' | 'error' | 'info'
 }
 
+interface SessionSummary {
+  duration: number // seconds
+  tasksCompleted: number
+  correctAnswers: number
+  accuracy: number
+  avgEngagement: number
+  avgFrustration: number
+  finalDifficulty: number
+}
+
 // =============================================================================
 // Default State
 // =============================================================================
@@ -85,6 +95,10 @@ export default function SessionPage() {
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([])
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null)
   const [elapsedTime, setElapsedTime] = useState(0)
+
+  // Session summary modal
+  const [showSummary, setShowSummary] = useState(false)
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null)
 
   // Refs
   const wsClientRef = useRef<WebSocketClient | null>(null)
@@ -207,6 +221,24 @@ export default function SessionPage() {
   }, [isAdaptiveEnabled, isAuthenticated, startPersistentSession, addLogEntry])
 
   const endSession = useCallback(async () => {
+    // Calculate session summary before resetting
+    const avgEngagement = cognitiveHistory.length > 0
+      ? cognitiveHistory.reduce((sum, p) => sum + p.engagement, 0) / cognitiveHistory.length
+      : 0
+    const avgFrustration = cognitiveHistory.length > 0
+      ? cognitiveHistory.reduce((sum, p) => sum + p.frustration, 0) / cognitiveHistory.length
+      : 0
+
+    const summary: SessionSummary = {
+      duration: elapsedTime,
+      tasksCompleted,
+      correctAnswers,
+      accuracy: tasksCompleted > 0 ? (correctAnswers / tasksCompleted) * 100 : 0,
+      avgEngagement,
+      avgFrustration,
+      finalDifficulty: currentDifficulty,
+    }
+
     // End WebSocket session
     if (wsClientRef.current) {
       wsClientRef.current.endSession()
@@ -218,12 +250,17 @@ export default function SessionPage() {
       await endPersistentSession()
     }
 
+    // Show summary modal
+    setSessionSummary(summary)
+    setShowSummary(true)
+
+    // Reset session state
     setIsSessionActive(false)
     setSessionId(null)
     setCognitiveState(DEFAULT_COGNITIVE_STATE)
     setEmotions(DEFAULT_EMOTIONS)
     setSessionStartTime(null)
-  }, [isAuthenticated, endPersistentSession])
+  }, [isAuthenticated, endPersistentSession, cognitiveHistory, elapsedTime, tasksCompleted, correctAnswers, currentDifficulty])
 
   // ===========================================================================
   // Session Timer
@@ -698,6 +735,100 @@ export default function SessionPage() {
           </div>
         </div>
       </div>
+
+      {/* Session Summary Modal */}
+      {showSummary && sessionSummary && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <h2 className="text-xl font-semibold mb-6 text-center">Session Complete</h2>
+
+            {/* Main Stats */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="text-center p-4 bg-neutral-50 rounded-lg">
+                <div className="text-3xl font-bold text-ink">
+                  {sessionSummary.accuracy.toFixed(0)}%
+                </div>
+                <div className="text-sm text-neutral-500 mt-1">Accuracy</div>
+              </div>
+              <div className="text-center p-4 bg-neutral-50 rounded-lg">
+                <div className="text-3xl font-bold text-ink">
+                  {sessionSummary.tasksCompleted}
+                </div>
+                <div className="text-sm text-neutral-500 mt-1">Tasks Completed</div>
+              </div>
+            </div>
+
+            {/* Duration */}
+            <div className="text-center mb-6">
+              <span className="text-neutral-500">Duration: </span>
+              <span className="font-mono font-medium">
+                {Math.floor(sessionSummary.duration / 60)}m {sessionSummary.duration % 60}s
+              </span>
+            </div>
+
+            {/* Metrics */}
+            <div className="space-y-3 mb-6">
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-neutral-600">Average Engagement</span>
+                  <span className="font-medium">{(sessionSummary.avgEngagement * 100).toFixed(0)}%</span>
+                </div>
+                <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 rounded-full transition-all"
+                    style={{ width: `${sessionSummary.avgEngagement * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-neutral-600">Average Frustration</span>
+                  <span className="font-medium">{(sessionSummary.avgFrustration * 100).toFixed(0)}%</span>
+                </div>
+                <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-400 rounded-full transition-all"
+                    style={{ width: `${sessionSummary.avgFrustration * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Final Difficulty */}
+            <div className="text-center text-sm text-neutral-500 mb-6">
+              Final difficulty level: <span className="font-medium text-ink">{sessionSummary.finalDifficulty}</span>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowSummary(false)
+                  setSessionSummary(null)
+                }}
+                className="btn btn-secondary flex-1"
+              >
+                Close
+              </button>
+              <Link
+                to="/dashboard"
+                className="btn btn-primary flex-1 text-center"
+                onClick={() => setShowSummary(false)}
+              >
+                View Dashboard
+              </Link>
+            </div>
+
+            {!isAuthenticated && (
+              <p className="text-xs text-neutral-400 text-center mt-4">
+                <Link to="/login" className="text-ink hover:underline">Sign in</Link>
+                {' '}to save your session history
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
