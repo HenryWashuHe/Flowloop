@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-canvas text-ink;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium transition-colors duration-150;
+  }
+
+  .btn-primary {
+    @apply bg-ink text-canvas hover:bg-neutral-700;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent border border-neutral-300 text-ink hover:bg-neutral-100;
+  }
+
+  .btn-ghost {
+    @apply bg-transparent text-neutral-600 hover:text-ink hover:bg-neutral-100;
+  }
+
+  .card {
+    @apply bg-white border border-neutral-200 rounded-lg p-5;
+  }
+
+  .input {
+    @apply bg-white border border-neutral-300 rounded px-3 py-2 text-ink placeholder-neutral-400 focus:outline-none focus:border-ink;
+  }
+
+  .label {
+    @apply text-sm font-medium text-neutral-600 uppercase tracking-wide;
+  }
+
+  .metric {
+    @apply font-mono text-2xl font-medium text-ink;
+  }
+
+  .gauge-track {
+    @apply w-full h-1.5 bg-neutral-200 rounded-full overflow-hidden;
+  }
+
+  .gauge-fill {
+    @apply h-full transition-all duration-300 ease-out rounded-full;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.neutral.300') transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.neutral.300');
+    border-radius: 3px;
+  }
+}

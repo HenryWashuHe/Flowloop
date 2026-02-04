@@ -1,0 +1,70 @@
+# FlowLoop ML Training Configuration
+# EmotionNet on FER2013 dataset
+
+# Dataset
+data:
+  root_dir: "./data/processed/fer2013"
+  image_size: 224
+  num_workers: 4
+  pin_memory: true
+
+# Model
+model:
+  name: "EmotionNet"
+  backbone: "efficientnet-b0"
+  num_emotions: 7
+  pretrained: true
+  freeze_backbone: false
+  dropout_rate: 0.3
+
+# Training
+training:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  patience: 10  # Early stopping patience
+  
+# Learning rate scheduler
+scheduler:
+  type: "cosine"  # Options: cosine, step, plateau
+  warmup_epochs: 5
+  min_lr: 0.000001
+
+# Augmentation
+augmentation:
+  train:
+    horizontal_flip: true
+    rotation_limit: 15
+    brightness_limit: 0.2
+    contrast_limit: 0.2
+    gaussian_blur: true
+    random_crop: true
+  val:
+    # No augmentation for validation
+    resize_only: true
+
+# Loss weights (multi-task)
+loss:
+  emotion_weight: 1.0
+  frustration_weight: 0.3
+  engagement_weight: 0.3
+
+# Checkpointing
+checkpoint:
+  save_dir: "./checkpoints"
+  save_best_only: true
+  metric: "val_accuracy"  # Metric to monitor
+
+# Logging
+logging:
+  log_dir: "./logs"
+  tensorboard: true
+  wandb: false  # Set to true to enable Weights & Biases
+  wandb_project: "flowloop-emotion"
+  log_every_n_steps: 50
+
+# Hardware
+hardware:
+  device: "mps"  # Options: cuda, mps, cpu (mps for Apple Silicon)
+  mixed_precision: false  # Set true for faster training if supported

@@ -1,0 +1,54 @@
+{
+  "name": "flowloop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adaptive cognitive engine using computer vision for real-time attention and frustration detection",
+  "keywords": [
+    "computer-vision",
+    "attention-tracking",
+    "adaptive-learning",
+    "emotion-detection",
+    "cognitive-training"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/flowloop"
+  },
+  "license": "MIT",
+  "scripts": {
+    "dev": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "dev:all": "concurrently \"pnpm dev\" \"pnpm dev:backend\"",
+    "build": "pnpm --filter frontend build",
+    "build:all": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "typecheck": "pnpm --filter frontend typecheck",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.2.4"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.14.0"
+}

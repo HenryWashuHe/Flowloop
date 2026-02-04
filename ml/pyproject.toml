@@ -1,0 +1,53 @@
+[project]
+name = "flowloop-ml"
+version = "0.1.0"
+description = "FlowLoop ML - Model training and export for emotion and attention detection"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "FlowLoop Team" }]
+dependencies = [
+    "torch>=2.1.0",
+    "torchvision>=0.16.0",
+    "efficientnet-pytorch>=0.7.1",
+    "onnx>=1.15.0",
+    "onnxruntime>=1.16.0",
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "opencv-python>=4.9.0",
+    "pillow>=10.2.0",
+    "scikit-learn>=1.4.0",
+    "matplotlib>=3.8.0",
+    "tqdm>=4.66.0",
+    "kaggle>=1.5.16",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "jupyter>=1.0.0",
+    "tensorboard>=2.15.0",
+]
+wandb = ["wandb>=0.16.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=. --cov-report=term-missing"
