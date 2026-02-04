@@ -39,6 +39,7 @@ interface SessionSummary {
   avgEngagement: number
   avgFrustration: number
   finalDifficulty: number
+  bestStreak: number
 }
 
 // =============================================================================
@@ -89,6 +90,8 @@ export default function SessionPage() {
   const [currentAnswer, setCurrentAnswer] = useState('')
   const [tasksCompleted, setTasksCompleted] = useState(0)
   const [correctAnswers, setCorrectAnswers] = useState(0)
+  const [currentStreak, setCurrentStreak] = useState(0)
+  const [bestStreak, setBestStreak] = useState(0)
 
   // Real-time tracking
   const [cognitiveHistory, setCognitiveHistory] = useState<CognitiveHistoryPoint[]>([])
@@ -211,6 +214,8 @@ export default function SessionPage() {
     setIsSessionActive(true)
     setTasksCompleted(0)
     setCorrectAnswers(0)
+    setCurrentStreak(0)
+    setBestStreak(0)
     setSessionStartTime(now)
     setElapsedTime(0)
     setCognitiveHistory([])
@@ -237,6 +242,7 @@ export default function SessionPage() {
       avgEngagement,
       avgFrustration,
       finalDifficulty: currentDifficulty,
+      bestStreak,
     }
 
     // End WebSocket session
@@ -260,7 +266,7 @@ export default function SessionPage() {
     setCognitiveState(DEFAULT_COGNITIVE_STATE)
     setEmotions(DEFAULT_EMOTIONS)
     setSessionStartTime(null)
-  }, [isAuthenticated, endPersistentSession, cognitiveHistory, elapsedTime, tasksCompleted, correctAnswers, currentDifficulty])
+  }, [isAuthenticated, endPersistentSession, cognitiveHistory, elapsedTime, tasksCompleted, correctAnswers, currentDifficulty, bestStreak])
 
   // ===========================================================================
   // Session Timer
@@ -275,6 +281,31 @@ export default function SessionPage() {
 
     return () => clearInterval(interval)
   }, [isSessionActive, sessionStartTime])
+
+  // ===========================================================================
+  // Keyboard Shortcuts
+  // ===========================================================================
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to end session (when active and not in an input)
+      if (e.key === 'Escape' && isSessionActive && !showSummary) {
+        const activeEl = document.activeElement
+        if (activeEl?.tagName !== 'INPUT') {
+          endSession()
+        }
+      }
+
+      // Close summary modal on Escape
+      if (e.key === 'Escape' && showSummary) {
+        setShowSummary(false)
+        setSessionSummary(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isSessionActive, showSummary, endSession])
 
   // Format elapsed time as MM:SS
   const formattedTime = useMemo(() => {
@@ -335,6 +366,17 @@ export default function SessionPage() {
     if (prevLastResultRef.current?.taskId === lastResult.taskId) return
 
     prevLastResultRef.current = lastResult
+
+    // Update streak
+    if (lastResult.correct) {
+      setCurrentStreak((prev) => {
+        const newStreak = prev + 1
+        setBestStreak((best) => Math.max(best, newStreak))
+        return newStreak
+      })
+    } else {
+      setCurrentStreak(0)
+    }
 
     // Add to activity log
     addLogEntry(
@@ -646,10 +688,16 @@ export default function SessionPage() {
                 <div className="text-xs text-neutral-500 mt-1">Completed</div>
               </div>
             </div>
-            <div className="mt-4 pt-4 border-t border-neutral-200">
+            <div className="mt-4 pt-4 border-t border-neutral-200 space-y-2">
               <div className="text-sm text-neutral-600">
                 {correctAnswers} of {tasksCompleted} correct
               </div>
+              {isSessionActive && currentStreak > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-orange-500 text-lg">🔥</span>
+                  <span className="text-sm font-medium">{currentStreak} streak</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -795,9 +843,17 @@ export default function SessionPage() {
               </div>
             </div>
 
-            {/* Final Difficulty */}
-            <div className="text-center text-sm text-neutral-500 mb-6">
-              Final difficulty level: <span className="font-medium text-ink">{sessionSummary.finalDifficulty}</span>
+            {/* Stats Row */}
+            <div className="flex justify-center gap-6 text-sm text-neutral-500 mb-6">
+              <div>
+                Difficulty: <span className="font-medium text-ink">{sessionSummary.finalDifficulty}</span>
+              </div>
+              {sessionSummary.bestStreak > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-orange-500">🔥</span>
+                  Best streak: <span className="font-medium text-ink">{sessionSummary.bestStreak}</span>
+                </div>
+              )}
             </div>
 
             {/* Actions */}
